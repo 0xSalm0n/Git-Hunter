@@ -1,0 +1,65 @@
+# GHRecon Configuration
+# =====================
+# Override these settings via CLI args or environment variables.
+
+github:
+  tokens_file: tokens.txt     # One token per line
+  graphql_enabled: true        # Use GraphQL API for faster enumeration
+
+scanning:
+  parallel_jobs: 8             # Concurrent clone/scan workers
+  clone_depth: 1               # 1 = shallow, 0 = full
+  max_repo_size_mb: 500        # Skip repos larger than this
+  scan_branches: true          # Fetch and scan all branches
+  scan_tags: true              # Fetch all tags
+  scan_prs: false              # Scan closed/merged PRs
+  scan_actions: true           # Scan GitHub Actions logs/artifacts
+  skip_forks: true             # Skip forked repositories
+  skip_archived: true          # Skip archived repositories
+  filter_languages: []         # Empty = all languages
+  min_stars: 0                 # Minimum star count
+  max_repos: 0                 # 0 = unlimited
+  last_push_within_days: 0     # 0 = no filter
+  priority_languages:          # Higher priority for scanning
+    - Python
+    - JavaScript
+    - Go
+    - TypeScript
+    - Java
+    - Ruby
+
+stealth:
+  enabled: false               # Enable stealth mode
+  proxy_list: proxies.txt      # One proxy per line (socks5://host:port)
+  min_delay: 3                 # Minimum delay between operations (seconds)
+  max_delay: 15                # Maximum delay between operations (seconds)
+  user_agents:                 # Randomized User-Agent strings
+    - "git/2.39.1"
+    - "git/2.39.2"
+    - "git/2.40.0"
+    - "git/2.40.1"
+    - "git/2.41.0"
+    - "git/2.42.0"
+    - "git/2.43.0"
+    - "git/2.44.0"
+
+validation:
+  enabled: true                # Validate discovered credentials
+  validate_aws: true           # AWS STS GetCallerIdentity
+  validate_github: true        # GitHub /user endpoint
+  validate_slack: true         # Slack auth.test
+  validate_stripe: true        # Stripe /v1/balance
+  validate_google: true        # Google API check
+  validate_openai: true        # OpenAI /v1/models
+  timeout: 15                  # Validation timeout per credential (seconds)
+
+output:
+  formats:                     # Report output formats
+    - json
+    - markdown
+    - csv
+  directory: ./scans           # Output directory for reports and DB
+  database: ghrecon.db         # SQLite database file
+  no_store_secrets: false      # Don't store raw secret values (hash only)
+  keep_repos: false            # Keep cloned repos after scan
+  encryption_key: null         # AES-256 encryption key for stored secrets
