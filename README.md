@@ -52,12 +52,12 @@ export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 Here's the complete usage reference you can paste into your README:
 
-```markdown
+```
 ## Commands
 
 ### `scan` — Run a reconnaissance scan
 
-```bash
+```
 # Scan an organization
 python ghrecon.py scan <target> [OPTIONS]
 ```
@@ -166,5 +166,4 @@ python ghrecon.py export 20250422_143522_myorg --validated-only --format csv
 
 # Check latest scan status
 python ghrecon.py status
-```
 ```
