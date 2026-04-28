@@ -1,16 +1,5 @@
 # Git-Hunter v2 — TruffleHog Integration Summary
 
-## Implementation Complete ✅
-
-All modules from the spec have been implemented. Here's what was built:
-
-## New Pipeline Flow
-
-```
-Cloner → TruffleHog Engine → Normalizer → Deduplicator → DB Storage
-                                    ↓ (if 0 findings + --mode deep)
-                              Regex Fallback
-```
 
 ## Files Created (6 new)
 
@@ -71,7 +60,7 @@ brew install trufflehog
 go install github.com/trufflesecurity/trufflehog/v3@latest
 
 # Or download binary from:
-# https://github.com/trufflesecurity/trufflehog/releases
+https://github.com/trufflesecurity/trufflehog/releases
 ```
 
 ## Usage Examples
