@@ -2,6 +2,7 @@
 GHRecon CLI interface using Typer with Rich output.
 """
 
+import gc
 import os
 import sys
 import asyncio
@@ -171,26 +172,48 @@ async def _run_scan(config: GHReconConfig, target: str, target_type: str,
         else:
             console.print("[yellow]~[/] All repos already cloned (resume mode)")
 
-        # --- Phase 3: Secret Scanning ---
+        # --- Phase 3: Secret Scanning (memory-tracked) ---
         console.print(f"\n[bold yellow]>> Phase 3:[/] Scanning for secrets...")
+
+        from ghrecon.core.scanner import get_memory_mb, _MEMORY_HARD_LIMIT_MB
 
         scanner = SecretScanner(config)
         unscanned = db.get_cloned_unscanned_repos(scan_id)
         total_findings = 0
         store_value = not config.output.no_store_secrets
 
+        mem_before = get_memory_mb()
+        console.print(f"[dim]  Memory at scan start: {mem_before:.0f} MB "
+                       f"(hard limit: {_MEMORY_HARD_LIMIT_MB} MB)[/]")
+
         with Progress(
             SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-            BarColumn(), TaskProgressColumn(), console=console
+            BarColumn(), TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[mem]}[/]"),
+            console=console
         ) as progress:
-            task = progress.add_task("Scanning...", total=len(unscanned))
+            task = progress.add_task("Scanning...", total=len(unscanned), mem="")
 
-            for repo_row in unscanned:
+            for idx, repo_row in enumerate(unscanned):
                 repo_path = repo_row.get("clone_path", "")
                 repo_name = repo_row.get("full_name", "")
                 repo_id = repo_row["repo_id"]
 
-                progress.update(task, description=f"Scanning {repo_name}...")
+                cur_mem = get_memory_mb()
+                progress.update(
+                    task,
+                    description=f"Scanning {repo_name}...",
+                    mem=f"{cur_mem:.0f}MB"
+                )
+
+                # Abort if memory pressure is critical
+                if cur_mem > _MEMORY_HARD_LIMIT_MB:
+                    console.print(
+                        f"\n[bold red]!! Memory limit hit ({cur_mem:.0f}MB) — "
+                        f"stopping scan at repo {idx+1}/{len(unscanned)}[/]"
+                    )
+                    log.error(f"Memory limit exceeded ({cur_mem:.0f}MB), aborting scan")
+                    break
 
                 if not repo_path or not os.path.exists(repo_path):
                     db.update_repository(repo_id, scan_status="failed",
@@ -209,6 +232,11 @@ async def _run_scan(config: GHReconConfig, target: str, target_type: str,
 
                     db.update_repository(repo_id, scan_status="complete",
                                          commits_scanned=len(findings))
+
+                    # Free findings list and force GC between repos
+                    del findings
+                    gc.collect()
+
                 except Exception as e:
                     log.error(f"Scan failed for {repo_name}: {e}")
                     db.update_repository(repo_id, scan_status="failed",
@@ -216,7 +244,11 @@ async def _run_scan(config: GHReconConfig, target: str, target_type: str,
 
                 progress.advance(task)
 
-        console.print(f"[green][+][/] Found {total_findings} potential secrets")
+        mem_after = get_memory_mb()
+        console.print(f"[green][+][/] Found {total_findings} potential secrets "
+                       f"[dim](mem: {mem_before:.0f}MB -> {mem_after:.0f}MB, "
+                       f"files: {scanner.files_scanned}, "
+                       f"skipped: {scanner.files_skipped})[/]")
         db.update_scan(scan_id, secrets_found=total_findings)
 
         # --- Phase 4: Validation ---

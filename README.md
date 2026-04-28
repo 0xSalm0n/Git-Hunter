@@ -62,79 +62,138 @@ graph TB
 | [markdown_report.py](file:///d:/Secret-Hunter/ghrecon/reporting/markdown_report.py) | 8KB | Markdown report generator |
 | [csv_report.py](file:///d:/Secret-Hunter/ghrecon/reporting/csv_report.py) | 2KB | CSV report generator |
 
-## Usage Examples
+
+
+```markdown
+## Installation
 
 ```bash
-# Basic scan
+git clone https://github.com/youruser/Git-Hunter.git
+cd Git-Hunter
+pip install -r requirements.txt
+```
+
+## Setup
+
+```bash
+# Set your GitHub token (required)
+export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+Here's the complete usage reference you can paste into your README:
+
+```markdown
+## Commands
+
+### `scan` — Run a reconnaissance scan
+
+```bash
+# Scan an organization
+python ghrecon.py scan <target> [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--type` | `-t` | auto-detect | Target type: `org`, `user`, `repo`, `search`, `file` |
+| `--config` | `-c` | `config.yaml` | Path to config YAML |
+| `--tokens` | | | Path to tokens file (one per line) |
+| `--parallel` | `-p` | `8` | Parallel clone/scan workers |
+| `--depth` | | `shallow` | Clone depth: `shallow`, `medium`, `full` |
+| `--validate-secrets / --no-validate` | | `true` | Validate discovered secrets |
+| `--scan-branches / --no-branches` | | `true` | Scan all branches |
+| `--scan-actions` | | `false` | Scan GitHub Actions artifacts/logs |
+| `--scan-prs` | | `false` | Scan pull request diffs |
+| `--skip-forks / --include-forks` | | `true` | Skip forked repos |
+| `--skip-archived / --include-archived` | | `true` | Skip archived repos |
+| `--max-size` | | `500` | Max repo size in MB |
+| `--max-repos` | | `0` | Max repos to scan (0 = unlimited) |
+| `--proxy-list` | | | Path to proxy list file |
+| `--stealth` | | `false` | Enable stealth mode (delays, UA rotation) |
+| `--output-format` | `-f` | `json,markdown,csv` | Output formats (comma-separated) |
+| `--output-dir` | `-o` | `./scans` | Output directory |
+| `--no-store-secrets` | | `false` | Don't store secret values in DB (hash only) |
+| `--keep-repos` | | `false` | Keep cloned repos after scan |
+| `--resume-scan` | | | Resume an interrupted scan by ID |
+
+### `export` — Export scan results
+
+```bash
+python ghrecon.py export <scan_id> [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--format` | `-f` | `json` | Export format: `json`, `csv`, `markdown` |
+| `--validated-only` | | `false` | Export only validated secrets |
+| `--output-dir` | `-o` | `./scans` | Output directory |
+| `--db` | | `./scans/ghrecon.db` | Database path |
+
+### `status` — Check scan status
+
+```bash
+python ghrecon.py status [SCAN_ID]   # omit ID for latest scan
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db` | `./scans/ghrecon.db` | Database path |
+
+### Global Options
+
+```bash
+python ghrecon.py --version   # Show version
+python ghrecon.py --help      # Show help
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_TOKEN` | Single GitHub token |
+| `GITHUB_TOKENS` | Comma-separated token list |
+| `GHRECON_PARALLEL` | Override parallel job count |
+| `GHRECON_STEALTH` | Enable stealth (`1` / `true`) |
+| `GHRECON_OUTPUT_DIR` | Override output directory |
+| `GHRECON_ENCRYPTION_KEY` | AES-256 key for secret storage |
+| `GHRECON_MEM_LIMIT_MB` | Memory limit in MB (default: `1500`) |
+
+## Examples
+
+```bash
+# Scan an organization
 python ghrecon.py scan myorg
 
-# Full options
+# Scan a single repo with full history
+python ghrecon.py scan https://github.com/user/repo --depth full
+
+# Search-based scan with repo limit
+python ghrecon.py scan --type search "org:google language:python stars:>1000" --max-repos 50
+
+# Stealth scan with proxies and custom tokens
+python ghrecon.py scan myorg --stealth --tokens tokens.txt --proxy-list proxies.txt
+
+# Full-featured scan
 python ghrecon.py scan myorg \
     --tokens tokens.txt \
     --parallel 12 \
-    --depth shallow \
+    --depth medium \
     --validate-secrets \
     --scan-branches \
     --scan-actions \
+    --scan-prs \
     --skip-forks \
-    --skip-archived \
     --max-size 500 \
+    --max-repos 100 \
     --stealth \
-    --proxy-list proxies.txt \
     --output-format json,markdown,csv \
     --output-dir ./scans/myorg
 
-# Search-based
-python ghrecon.py scan --type search "org:google language:python stars:>1000" --max-repos 50
-
-# Resume interrupted
+# Resume an interrupted scan
 python ghrecon.py scan myorg --resume-scan 20250422_143522_myorg
 
-# Export validated only
-python ghrecon.py export 20250422_143522_myorg --validated-only --format json
+# Export validated secrets only
+python ghrecon.py export 20250422_143522_myorg --validated-only --format csv
 
-# Check status
+# Check latest scan status
 python ghrecon.py status
 ```
-
-## Key Features Implemented
-
-### Secret Detection (40 patterns)
-- **Cloud**: AWS Access/Secret Keys, Azure Storage, GCP Service Accounts
-- **VCS**: GitHub PAT/OAuth/App/Refresh tokens
-- **Comms**: Slack tokens/webhooks, Discord, Telegram bots
-- **Payment**: Stripe live/restricted keys, Square tokens
-- **AI/ML**: OpenAI API keys
-- **Email**: SendGrid, Mailgun, Twilio
-- **Infra**: Private keys, JWTs, connection strings, passwords
-- **Package Registries**: NPM, PyPI tokens
-- **Platform**: Heroku, Shopify, Databricks, DigitalOcean
-- **High-entropy strings** near sensitive keywords (Shannon entropy > 4.5)
-
-### Validation (6 platforms)
-- **AWS**: STS GetCallerIdentity (read-only, minimal CloudTrail)
-- **GitHub**: /user endpoint + scope enumeration + org discovery
-- **Slack**: auth.test with workspace enumeration
-- **Google**: API key validity check
-- **Stripe**: /v1/balance read-only check
-- **OpenAI**: /v1/models endpoint
-
-### Stealth Operations
-- Jittered delays (configurable 3-15s)
-- SOCKS5 proxy rotation
-- User-Agent randomization
-- Randomized clone order
-- Token rotation with health tracking
-
-### Data Security
-- AES-256 encrypted secret storage in SQLite
-- `--no-store-secrets` flag (hash-only mode)
-- Automatic repo cleanup after scan
-- SHA-256 deduplication
-
-### Resilience
-- Interrupted scan resume via `--resume-scan`
-- Token auto-rotation on rate limit/expiry
-- Exponential backoff on failures
-- Disk space checks before cloning
-- Graceful error handling throughout
+```
