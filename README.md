@@ -1,25 +1,6 @@
 # Git-Hunter v2 — TruffleHog Integration Summary
 
 
-## Files Created (6 new)
-
-| File | Purpose |
-|------|---------|
-| [base.py](file:///d:/Git-Hunter/ghrecon/core/detection/base.py) | Abstract `DetectionEngine` interface |
-| [trufflehog_engine.py](file:///d:/Git-Hunter/ghrecon/core/detection/trufflehog_engine.py) | Primary engine — wraps TruffleHog CLI binary |
-| [regex_engine.py](file:///d:/Git-Hunter/ghrecon/core/detection/regex_engine.py) | Fallback engine — wraps v1 scanner (only in `--mode deep`) |
-| [normalizer.py](file:///d:/Git-Hunter/ghrecon/core/processing/normalizer.py) | Converts raw TruffleHog JSON → unified schema |
-| [deduplicator.py](file:///d:/Git-Hunter/ghrecon/core/processing/deduplicator.py) | SHA-256 fingerprint dedup (value + file + commit) |
-| `__init__.py` × 2 | Package init files |
-
-## Files Modified (3)
-
-| File | Changes |
-|------|---------|
-| [cli.py](file:///d:/Git-Hunter/ghrecon/cli.py) | Added `--engine` and `--mode` flags, rewired Phase 3 pipeline, Phase 4 now conditional |
-| [db.py](file:///d:/Git-Hunter/ghrecon/utils/db.py) | Added `engine`, `verified`, `detector_name` columns + migration for existing DBs |
-| [requirements.txt](file:///d:/Git-Hunter/requirements.txt) | Added `psutil>=5.9.0` |
-
 ## New CLI Flags
 
 ```bash
