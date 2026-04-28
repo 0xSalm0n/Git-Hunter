@@ -33,39 +33,10 @@ graph TB
     Core --> Reports
 ```
 
-## Project Structure
-
-| File | Size | Purpose |
-|------|------|---------|
-| [ghrecon.py](file:///d:/Secret-Hunter/ghrecon.py) | Entry | Main CLI entry point |
-| [config.yaml](file:///d:/Secret-Hunter/config.yaml) | Config | Default configuration |
-| [requirements.txt](file:///d:/Secret-Hunter/requirements.txt) | Deps | Python dependencies |
-| [cli.py](file:///d:/Secret-Hunter/ghrecon/cli.py) | 20KB | Typer CLI with Rich output |
-| [config.py](file:///d:/Secret-Hunter/ghrecon/config.py) | 7KB | Pydantic config management |
-| [enumerator.py](file:///d:/Secret-Hunter/ghrecon/core/enumerator.py) | 18KB | GitHub REST + GraphQL enumeration |
-| [cloner.py](file:///d:/Secret-Hunter/ghrecon/core/cloner.py) | 12KB | Async git operations |
-| [scanner.py](file:///d:/Secret-Hunter/ghrecon/core/scanner.py) | 18KB | Secret detection (40 patterns) |
-| [validator.py](file:///d:/Secret-Hunter/ghrecon/core/validator.py) | 5KB | Validation orchestrator |
-| [analyzer.py](file:///d:/Secret-Hunter/ghrecon/core/analyzer.py) | 13KB | Timeline, deps, CI/CD analysis |
-| [aws.py](file:///d:/Secret-Hunter/ghrecon/validators/aws.py) | 6KB | AWS STS validation |
-| [github_val.py](file:///d:/Secret-Hunter/ghrecon/validators/github_val.py) | 4KB | GitHub token validation |
-| [slack.py](file:///d:/Secret-Hunter/ghrecon/validators/slack.py) | 2KB | Slack auth.test validation |
-| [google.py](file:///d:/Secret-Hunter/ghrecon/validators/google.py) | 2KB | Google API key validation |
-| [stripe.py](file:///d:/Secret-Hunter/ghrecon/validators/stripe.py) | 2KB | Stripe balance validation |
-| [openai_val.py](file:///d:/Secret-Hunter/ghrecon/validators/openai_val.py) | 2KB | OpenAI models validation |
-| [db.py](file:///d:/Secret-Hunter/ghrecon/utils/db.py) | 16KB | SQLite with AES-256 encryption |
-| [token_pool.py](file:///d:/Secret-Hunter/ghrecon/utils/token_pool.py) | 5KB | Token rotation + health |
-| [proxy.py](file:///d:/Secret-Hunter/ghrecon/utils/proxy.py) | 3KB | SOCKS5 proxy rotation |
-| [logger.py](file:///d:/Secret-Hunter/ghrecon/utils/logger.py) | 3KB | Structured JSON logging |
-| [secrets.yaml](file:///d:/Secret-Hunter/ghrecon/patterns/secrets.yaml) | 2KB | Pattern definitions |
-| [json_report.py](file:///d:/Secret-Hunter/ghrecon/reporting/json_report.py) | 5KB | JSON report generator |
-| [markdown_report.py](file:///d:/Secret-Hunter/ghrecon/reporting/markdown_report.py) | 8KB | Markdown report generator |
-| [csv_report.py](file:///d:/Secret-Hunter/ghrecon/reporting/csv_report.py) | 2KB | CSV report generator |
-
-
 
 ```markdown
 ## Installation
+```
 
 ```bash
 git clone https://github.com/youruser/Git-Hunter.git
@@ -75,7 +46,7 @@ pip install -r requirements.txt
 
 ## Setup
 
-```bash
+```
 # Set your GitHub token (required)
 export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
@@ -116,7 +87,7 @@ python ghrecon.py scan <target> [OPTIONS]
 
 ### `export` — Export scan results
 
-```bash
+```
 python ghrecon.py export <scan_id> [OPTIONS]
 ```
 
@@ -129,7 +100,7 @@ python ghrecon.py export <scan_id> [OPTIONS]
 
 ### `status` — Check scan status
 
-```bash
+```
 python ghrecon.py status [SCAN_ID]   # omit ID for latest scan
 ```
 
@@ -139,7 +110,7 @@ python ghrecon.py status [SCAN_ID]   # omit ID for latest scan
 
 ### Global Options
 
-```bash
+```
 python ghrecon.py --version   # Show version
 python ghrecon.py --help      # Show help
 ```
@@ -158,7 +129,7 @@ python ghrecon.py --help      # Show help
 
 ## Examples
 
-```bash
+```
 # Scan an organization
 python ghrecon.py scan myorg
 
