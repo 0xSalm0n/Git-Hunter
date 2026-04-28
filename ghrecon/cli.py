@@ -38,6 +38,10 @@ from ghrecon.core.cloner import AsyncCloner
 from ghrecon.core.scanner import SecretScanner
 from ghrecon.core.validator import SecretValidator
 from ghrecon.core.analyzer import Analyzer
+from ghrecon.core.detection.trufflehog_engine import TruffleHogEngine
+from ghrecon.core.detection.regex_engine import RegexEngine
+from ghrecon.core.processing.normalizer import normalize
+from ghrecon.core.processing.deduplicator import deduplicate
 from ghrecon.reporting.json_report import generate_json_report
 from ghrecon.reporting.markdown_report import generate_markdown_report
 from ghrecon.reporting.csv_report import generate_csv_report
@@ -66,7 +70,8 @@ def _print_banner():
 
 
 async def _run_scan(config: GHReconConfig, target: str, target_type: str,
-                     scan_id: str, resume: bool = False):
+                     scan_id: str, resume: bool = False,
+                     engine_name: str = "trufflehog", scan_mode: str = "verified"):
     """Core scan execution logic."""
     log = setup_logger(
         log_file=os.path.join(config.output.directory, f"{scan_id}.log"),
@@ -172,14 +177,41 @@ async def _run_scan(config: GHReconConfig, target: str, target_type: str,
         else:
             console.print("[yellow]~[/] All repos already cloned (resume mode)")
 
-        # --- Phase 3: Secret Scanning (memory-tracked) ---
+        # --- Phase 3: Secret Scanning (TruffleHog pipeline) ---
         console.print(f"\n[bold yellow]>> Phase 3:[/] Scanning for secrets...")
 
         from ghrecon.core.scanner import get_memory_mb, _MEMORY_HARD_LIMIT_MB
+        from concurrent.futures import ProcessPoolExecutor
 
-        scanner = SecretScanner(config)
+        # Initialize detection engine
+        use_trufflehog = engine_name == "trufflehog"
+        verified_only = scan_mode == "verified"
+        use_regex_fallback = scan_mode == "deep"
+
+        if use_trufflehog:
+            th_engine = TruffleHogEngine(
+                verified_only=verified_only,
+                timeout=600,
+                concurrency=4,
+            )
+            if not th_engine.is_available():
+                console.print("[bold red]!! TruffleHog not found — falling back to regex engine[/]")
+                use_trufflehog = False
+
+        if use_trufflehog:
+            engine_label = f"trufflehog ({scan_mode})"
+        else:
+            engine_label = "regex"
+
+        console.print(f"[dim]  Active engine: {engine_label}[/]")
+
+        regex_engine = None
+        if not use_trufflehog or use_regex_fallback:
+            regex_engine = RegexEngine(config)
+
         unscanned = db.get_cloned_unscanned_repos(scan_id)
         total_findings = 0
+        verified_count = 0
         store_value = not config.output.no_store_secrets
 
         mem_before = get_memory_mb()
@@ -222,19 +254,44 @@ async def _run_scan(config: GHReconConfig, target: str, target_type: str,
                     continue
 
                 try:
-                    findings = await scanner.full_repo_scan(repo_path, repo_name)
+                    # --- Pipeline: Detect → Normalize → Deduplicate ---
+                    raw_findings = []
 
-                    for finding in findings:
+                    if use_trufflehog:
+                        raw_findings = th_engine.scan(repo_path)
+
+                    # Normalize TruffleHog output
+                    if use_trufflehog and raw_findings:
+                        normalized = [normalize(f, "trufflehog") for f in raw_findings]
+                    elif use_trufflehog and not raw_findings and use_regex_fallback:
+                        # Deep mode: TruffleHog found nothing → regex fallback
+                        log.info(f"TruffleHog returned 0 findings for {repo_name}, running regex fallback")
+                        raw_findings = regex_engine.scan(repo_path)
+                        normalized = [normalize(f, "regex") for f in raw_findings]
+                    elif not use_trufflehog:
+                        # Regex-only mode
+                        raw_findings = regex_engine.scan(repo_path)
+                        normalized = [normalize(f, "regex") for f in raw_findings]
+                    else:
+                        normalized = []
+
+                    # Deduplicate
+                    deduped = deduplicate(normalized)
+
+                    # Store results
+                    for finding in deduped:
                         secret_id = db.add_secret(scan_id, repo_id, finding,
                                                    store_value=store_value)
                         if secret_id:
                             total_findings += 1
+                            if finding.get("verified"):
+                                verified_count += 1
 
                     db.update_repository(repo_id, scan_status="complete",
-                                         commits_scanned=len(findings))
+                                         commits_scanned=len(deduped))
 
-                    # Free findings list and force GC between repos
-                    del findings
+                    # Free and GC between repos
+                    del raw_findings, normalized, deduped
                     gc.collect()
 
                 except Exception as e:
@@ -246,13 +303,17 @@ async def _run_scan(config: GHReconConfig, target: str, target_type: str,
 
         mem_after = get_memory_mb()
         console.print(f"[green][+][/] Found {total_findings} potential secrets "
-                       f"[dim](mem: {mem_before:.0f}MB -> {mem_after:.0f}MB, "
-                       f"files: {scanner.files_scanned}, "
-                       f"skipped: {scanner.files_skipped})[/]")
+                       f"({verified_count} verified) "
+                       f"[dim](mem: {mem_before:.0f}MB -> {mem_after:.0f}MB)[/]")
         db.update_scan(scan_id, secrets_found=total_findings)
 
-        # --- Phase 4: Validation ---
-        if config.validation.enabled:
+        # --- Phase 4: Validation (only in full/deep mode) ---
+        # In verified mode, TruffleHog already validated — skip redundant checks
+        run_validation = (
+            config.validation.enabled
+            and scan_mode in ("full", "deep")
+        )
+        if run_validation:
             console.print(f"\n[bold yellow]>> Phase 4:[/] Validating credentials...")
 
             validator = SecretValidator(config)
@@ -391,13 +452,22 @@ def scan(
     no_store_secrets: bool = typer.Option(False, "--no-store-secrets", help="Don't store secret values in DB"),
     keep_repos: bool = typer.Option(False, "--keep-repos", help="Keep cloned repos after scan"),
     resume_scan: Optional[str] = typer.Option(None, "--resume-scan", help="Resume an interrupted scan by ID"),
+    engine: str = typer.Option("trufflehog", "--engine", help="Detection engine: trufflehog (default), regex"),
+    mode: str = typer.Option("verified", "--mode", help="Scan mode: verified (default), full, deep"),
 ):
     """
     Run a GitHub secret reconnaissance scan.
 
+    Modes:
+      verified  TruffleHog --only-verified (default, highest accuracy)
+      full      TruffleHog without --only-verified (noisier, faster)
+      deep      TruffleHog + regex fallback (maximum coverage, slowest)
+
     Examples:
       ghrecon scan myorg
-      ghrecon scan https://github.com/user/repo
+      ghrecon scan myorg --mode deep
+      ghrecon scan myorg --engine regex
+      ghrecon scan https://github.com/user/repo --mode full
       ghrecon scan --type search "org:target language:python"
       ghrecon scan myorg --stealth --tokens tokens.txt
     """
@@ -426,11 +496,14 @@ def scan(
     resume = resume_scan is not None
 
     console.print(f"[dim]Scan ID:[/] {scan_id}")
+    console.print(f"[dim]Engine:[/] {engine}")
+    console.print(f"[dim]Mode:[/] {mode}")
     console.print(f"[dim]Stealth:[/] {'enabled' if config.stealth.enabled else 'disabled'}")
     console.print(f"[dim]Parallel:[/] {config.scanning.parallel_jobs} jobs")
     console.print(f"[dim]Output:[/] {config.output.directory}")
 
-    asyncio.run(_run_scan(config, target, target_type, scan_id, resume))
+    asyncio.run(_run_scan(config, target, target_type, scan_id, resume,
+                          engine_name=engine, scan_mode=mode))
 
 
 @app.command()

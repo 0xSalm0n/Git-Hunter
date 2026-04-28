@@ -95,6 +95,9 @@ class DatabaseManager:
                 file_path TEXT, line_number INTEGER, commit_hash TEXT,
                 commit_date TIMESTAMP, commit_author TEXT, branch TEXT,
                 context TEXT, source TEXT DEFAULT 'regex', entropy REAL,
+                engine TEXT DEFAULT 'regex',
+                verified BOOLEAN DEFAULT 0,
+                detector_name TEXT,
                 validated BOOLEAN DEFAULT 0, validation_result TEXT,
                 is_valid BOOLEAN, high_value BOOLEAN DEFAULT 0,
                 privilege_level TEXT, false_positive BOOLEAN DEFAULT 0,
@@ -120,10 +123,22 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_secrets_repo ON secrets(repo_id);
             CREATE INDEX IF NOT EXISTS idx_secrets_type ON secrets(secret_type);
             CREATE INDEX IF NOT EXISTS idx_secrets_hash ON secrets(secret_hash);
+            CREATE INDEX IF NOT EXISTS idx_secrets_engine ON secrets(engine);
+            CREATE INDEX IF NOT EXISTS idx_secrets_verified ON secrets(verified);
             CREATE INDEX IF NOT EXISTS idx_repos_scan ON repositories(scan_id);
             CREATE INDEX IF NOT EXISTS idx_repos_status ON repositories(clone_status, scan_status);
             CREATE INDEX IF NOT EXISTS idx_progress_scan ON scan_progress(scan_id, phase);
         """)
+        # Migrate existing databases — add new columns if missing
+        for col, typedef in [
+            ("engine", "TEXT DEFAULT 'regex'"),
+            ("verified", "BOOLEAN DEFAULT 0"),
+            ("detector_name", "TEXT"),
+        ]:
+            try:
+                self._conn.execute(f"ALTER TABLE secrets ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass  # Column already exists
         self._conn.commit()
 
     def create_scan(self, scan_id: str, target: str, target_type: str = "unknown",
@@ -220,13 +235,17 @@ class DatabaseManager:
         cursor = self._conn.execute(
             """INSERT INTO secrets (scan_id, repo_id, secret_type, secret_value, secret_hash,
                file_path, line_number, commit_hash, commit_date, commit_author, branch,
-               context, source, entropy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               context, source, entropy, engine, verified, detector_name)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (scan_id, repo_id, secret_data.get("type", "unknown"), stored_value, secret_hash,
              secret_data.get("file_path"), secret_data.get("line_number"),
              secret_data.get("commit_hash"), secret_data.get("commit_date"),
              secret_data.get("commit_author"), secret_data.get("branch"),
              secret_data.get("context", ""), secret_data.get("source", "regex"),
-             secret_data.get("entropy")))
+             secret_data.get("entropy"),
+             secret_data.get("engine", "regex"),
+             secret_data.get("verified", False),
+             secret_data.get("detector_name", "")))
         self._conn.commit()
         return cursor.lastrowid
 
