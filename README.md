@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/banner.png" alt="Git-Hunter Banner" width="800"/>
-</p>
-
 <h1 align="center">Git-Hunter</h1>
 
 <p align="center">
