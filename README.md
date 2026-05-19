@@ -17,6 +17,7 @@
   <a href="#features">Features</a> •
   <a href="#scan-modes">Scan Modes</a> •
   <a href="#usage">Usage</a> •
+  <a href="#ghost-commit-scanning">Ghost Commits</a> •
   <a href="#architecture">Architecture</a> •
   <a href="#configuration">Configuration</a>
 </p>
@@ -40,6 +41,7 @@ Built for red teamers, penetration testers, and security researchers who need a 
 | Scanning leaves fingerprints | Stealth mode with proxy rotation, jittered delays, and user-agent randomization |
 | Large orgs cause OOM crashes | Memory-aware scanning with streaming I/O and configurable hard limits |
 | Interrupted scans lose progress | SQLite-backed state with full resume capability |
+| Force-pushed secrets disappear from history | Ghost commit scanner recovers dangling commits from GitHub Archive |
 
 ---
 
@@ -78,6 +80,13 @@ Built for red teamers, penetration testers, and security researchers who need a 
 - **Markdown** — Human-friendly with summary tables
 - **CSV** — Spreadsheet-compatible for triage workflows
 - Rich CLI summary with high-value secret alerts
+
+### 👻 Ghost Commit Scanning
+- Scan **dangling commits** from force-push events logged in GitHub Archive
+- Recover secrets that developers tried to delete by rewriting Git history
+- Ingests data from **SQLite** databases or **CSV** exports (BigQuery compatible)
+- Uses **partial git clones** (`--filter=blob:none`) for speed and efficiency
+- TruffleHog scans orphaned commit ranges for verified credential leaks
 
 ### ⚡ Performance & Memory
 - Streaming `git log` parsing (no buffering hundreds of MB)
@@ -261,6 +270,105 @@ python ghrecon.py status
 
 ---
 
+## Ghost Commit Scanning
+
+GitHub Archive logs every public commit event — including those that developers try to delete via force pushes. When a developer force-pushes to rewrite history (e.g., to remove leaked credentials), GitHub retains the original "dangling" commits indefinitely. In the archive data, these appear as **zero-commit PushEvents** (events where `size == 0`, meaning the `before` SHA was overwritten).
+
+The `ghost` command scans these dangling commits for leaked secrets.
+
+### Ghost Command
+
+```bash
+python ghrecon.py ghost <target_org> [options]
+```
+
+#### Options
+
+```bash
+--db-file pushes.db           # SQLite database with force-push events
+--events-file events.csv      # CSV file with force-push events
+--scan                        # Run TruffleHog scan on dangling commits
+--verbose / -v                # Enable debug logging
+```
+
+#### Examples
+
+```bash
+# Report only — shows summary, per-repo breakdown, and yearly histogram
+python ghrecon.py ghost myorg --db-file pushes.db
+
+# Report + scan dangling commits for leaked secrets
+python ghrecon.py ghost myorg --db-file pushes.db --scan
+
+# Using CSV input (e.g., from BigQuery export)
+python ghrecon.py ghost myorg --events-file events.csv --scan
+
+# With verbose logging for debugging
+python ghrecon.py ghost myorg --db-file pushes.db --scan -v
+```
+
+### Data Format
+
+Both `--db-file` (SQLite) and `--events-file` (CSV) sources must provide exactly 4 columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `repo_org` | string | GitHub organization or username that owns the repo |
+| `repo_name` | string | Repository name (without the org prefix) |
+| `before` | string | The overwritten commit SHA (7–40 hex characters) |
+| `timestamp` | integer | Unix epoch timestamp of the force-push event |
+
+For **SQLite**, the table must be named `pushes`. For **CSV**, include a header row.
+
+<details>
+<summary><b>Example CSV</b></summary>
+
+```csv
+repo_org,repo_name,before,timestamp
+myorg,my-api,a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2,1679500800
+myorg,backend-service,f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5,1695081600
+myorg,infra-config,deadbeefdeadbeefdeadbeefdeadbeefdeadbeef,1710720000
+```
+
+</details>
+
+<details>
+<summary><b>BigQuery SQL to generate the data</b></summary>
+
+```sql
+SELECT
+  JSON_EXTRACT_SCALAR(payload, '$.push_id') as push_id,
+  repo.name as repo_full_name,
+  SPLIT(repo.name, '/')[OFFSET(0)] as repo_org,
+  SPLIT(repo.name, '/')[OFFSET(1)] as repo_name,
+  JSON_EXTRACT_SCALAR(payload, '$.before') as before,
+  UNIX_SECONDS(created_at) as timestamp
+FROM `githubarchive.day.*`
+WHERE type = 'PushEvent'
+  AND JSON_EXTRACT_SCALAR(payload, '$.size') = '0'
+  AND SPLIT(repo.name, '/')[OFFSET(0)] = 'TARGET_ORG'
+```
+
+</details>
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Ghost Commit Scanner                       │
+├──────────────┬──────────────────┬────────────────────────────┤
+│   Phase 1    │     Phase 2      │         Phase 3            │
+│   Gather     │     Report       │          Scan              │
+│              │                  │                            │
+│ Load events  │ Summary stats    │ Partial clone (no blobs)   │
+│ from SQLite  │ Per-repo table   │ Fetch dangling SHA         │
+│ or CSV       │ Yearly histogram │ Identify base commit       │
+│              │                  │ TruffleHog git mode scan   │
+└──────────────┴──────────────────┴────────────────────────────┘
+```
+
+---
+
 ## Architecture
 
 ### Pipeline Overview
@@ -303,6 +411,7 @@ Git-Hunter/
 │   │   ├── scanner.py         # Regex + entropy secret scanner
 │   │   ├── validator.py       # Credential validation orchestrator
 │   │   ├── analyzer.py        # Dependency confusion, CI/CD, timelines
+│   │   ├── ghost_scanner.py   # Force-push ghost commit scanner
 │   │   │
 │   │   ├── detection/
 │   │   │   ├── base.py        # Abstract DetectionEngine interface

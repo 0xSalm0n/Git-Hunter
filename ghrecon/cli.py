@@ -38,6 +38,7 @@ from ghrecon.core.cloner import AsyncCloner
 from ghrecon.core.scanner import SecretScanner
 from ghrecon.core.validator import SecretValidator
 from ghrecon.core.analyzer import Analyzer
+from ghrecon.core.ghost_scanner import GhostCommitScanner
 from ghrecon.core.detection.trufflehog_engine import TruffleHogEngine
 from ghrecon.core.detection.regex_engine import RegexEngine
 from ghrecon.core.processing.normalizer import normalize
@@ -568,6 +569,75 @@ def status(
 
     _print_summary(db, scan_id)
     db.close()
+
+
+@app.command()
+def ghost(
+    target_org: str = typer.Argument(help="GitHub username or organization to inspect for force-push events"),
+    scan: bool = typer.Option(False, "--scan", help="Run TruffleHog scan on every dangling commit"),
+    events_file: Optional[str] = typer.Option(None, "--events-file", help="Path to CSV file with force-push events (columns: repo_org, repo_name, before, timestamp)"),
+    db_file: Optional[str] = typer.Option(None, "--db-file", help="Path to SQLite database with force-push events (table: pushes)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose / debug logging"),
+):
+    """
+    Scan dangling ghost commits from GitHub Archive force-push events.
+
+    GitHub Archive logs every public commit, including those developers try
+    to delete via force pushes.  These 'ghost' commits may contain leaked
+    credentials that were hastily removed by rewriting Git history.
+
+    This command ingests force-push event data, shows a summary report, and
+    optionally scans each dangling commit for verified secrets using TruffleHog.
+
+    Data sources (supply one):
+      --db-file      SQLite database with a 'pushes' table
+      --events-file  CSV export with header row
+
+    Both must contain columns: repo_org, repo_name, before, timestamp
+
+    Examples:
+      ghrecon ghost myorg --db-file pushes.db
+      ghrecon ghost myorg --events-file events.csv
+      ghrecon ghost myorg --db-file pushes.db --scan
+    """
+    import logging
+    from pathlib import Path
+
+    _print_banner()
+
+    # Configure logging level
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(message)s",
+    )
+
+    if not events_file and not db_file:
+        console.print("[red][✗] You must supply --db-file or --events-file.[/]")
+        raise typer.Exit(1)
+
+    events_path = Path(events_file) if events_file else None
+    db_path = Path(db_file) if db_file else None
+
+    console.print(f"[dim]Target Org:[/] [cyan]{target_org}[/cyan]")
+    console.print(f"[dim]Data Source:[/] {events_file or db_file}")
+    console.print(f"[dim]Scan Mode:[/] {'enabled — will scan with TruffleHog' if scan else 'report only'}")
+
+    scanner = GhostCommitScanner(target_org)
+
+    # Phase 1: Gather
+    repos = scanner.gather_commits(events_path, db_path)
+
+    # Phase 2: Report
+    scanner.report(repos)
+
+    # Phase 3: Scan (optional)
+    if scan:
+        scanner.scan_commits(repos)
+    else:
+        console.print(
+            "[green][✓][/green] Report complete. "
+            "Run with [bold]--scan[/bold] to scan ghost commits for secrets."
+        )
 
 
 @app.callback(invoke_without_command=True)
